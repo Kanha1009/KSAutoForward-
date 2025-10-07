@@ -26,10 +26,12 @@ collection = db["message_map"]
 # ------------------------
 # Pyrogram Client
 # ------------------------
-app = Client("forwarder_bot",
-             api_id=API_ID,
-             api_hash=API_HASH,
-             bot_token=BOT_TOKEN)
+app = Client(
+    "forwarder_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
 # ------------------------
 # DB Helpers
@@ -49,25 +51,20 @@ def get_mappings(source_id):
 # ------------------------
 async def sync_old_messages():
     print("🔄 Syncing old messages for edit tracking...")
-    async for message in app.iter_history(SOURCE_CHANNEL):
+    async for message in app.get_chat_history(SOURCE_CHANNEL, limit=0):  # 0 = fetch all
         text = message.text or message.caption
         if not text:
             continue
 
-        # Check if mapping exists for all target channels
         for channel in TARGET_CHANNELS:
             exists = collection.find_one({"source_id": message.id, "channel_id": channel})
             if not exists:
-                # Try to find message in target channel with same content
-                # We'll fetch last 500 messages from target channel and match text
-                found_target = None
-                async for target_msg in app.iter_history(channel, limit=500):
+                # Find matching message in target channel
+                async for target_msg in app.get_chat_history(channel, limit=1000):
                     if (target_msg.text or target_msg.caption) == text:
-                        found_target = target_msg
+                        save_mapping(message.id, channel, target_msg.id)
+                        print(f"✅ Mapping added for old msg {message.id} -> {channel}:{target_msg.id}")
                         break
-                if found_target:
-                    save_mapping(message.id, channel, found_target.id)
-                    print(f"✅ Mapping added for old msg {message.id} -> {channel}:{found_target.id}")
 
 # ------------------------
 # Handle New Messages
@@ -111,12 +108,9 @@ async def edit_in_channels(client, message):
 # Main Start
 # ------------------------
 async def main():
-    # Start Pyrogram client
     await app.start()
-    # Sync old messages once at start
-    await sync_old_messages()
+    await sync_old_messages()  # populate DB for old messages
     print("🚀 Bot started with old message edit sync ready!")
-    # Idle to keep bot running
     await app.idle()
 
 if __name__ == "__main__":
